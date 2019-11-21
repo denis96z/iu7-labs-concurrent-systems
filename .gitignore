@@ -5,3 +5,5 @@ tags
 
 ### out ###
 build
+cmake-build-debug
+cmake-build-release
