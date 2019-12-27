@@ -63,6 +63,11 @@ write_items_info(FILE *f, const items_t *items);
 error_t
 add_item_to_items(items_t *items, const item_t *item);
 
+error_t
+add_random_items_to_items(items_t *items, int_t num_items,
+                          int_t item_value_min, int_t item_value_max,
+                          int_t item_weight_min, int_t item_weight_max);
+
 typedef struct
 {
     items_t  items;
@@ -96,5 +101,8 @@ pack_knapsack(knapsack_t *knapsack, double *dt, const items_t *items);
 
 error_t
 pack_knapsack_omp(knapsack_t *knapsack, double *dt, const items_t *items);
+
+error_t
+pack_knapsack_mpi(knapsack_t *knapsack, double *dt, const items_t *items);
 
 #endif //LAB01_KNAPSACK_H

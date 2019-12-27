@@ -11,5 +11,4 @@ include_directories(
 
 add_executable(lab01
     project/src/main.c
-    project/src/knapsack.c
-)
+    project/src/knapsack.c)

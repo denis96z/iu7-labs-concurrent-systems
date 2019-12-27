@@ -3,7 +3,9 @@
 #include <stdlib.h>
 
 #include <omp.h>
+#include <mpi.h>
 
+#include <macro.h>
 #include <knapsack.h>
 
 #define BUF_SIZE 16
@@ -66,6 +68,28 @@ read_items_info(FILE *f, items_t *items)
     items->arr = new_arr;
     items->count = items->capacity;
 
+    return OK;
+}
+
+#define rand_range(min, max) \
+    ((rand() % ((max) - (min))) + (min))
+
+error_t
+add_random_items_to_items(items_t *items, int_t num_items,
+                          int_t item_value_min, int_t item_value_max,
+                          int_t item_weight_min, int_t item_weight_max)
+{
+    for (int_t i = 0; i < num_items; ++i)
+    {
+        item_t item = {
+                .value  = rand_range(item_value_min, item_value_max),
+                .weight = rand_range(item_weight_min, item_weight_max),
+        };
+
+        error_t err = add_item_to_items(items, &item);
+        if (err != OK)
+            return err;
+    }
     return OK;
 }
 
@@ -228,7 +252,7 @@ free_matrix(int_t **m, size_t rc)
     free(m);
 }
 
-#define __LOG_STAT__
+//#define __LOG_STAT__
 #define printnl(n)                     \
     do {                               \
         for (size_t i = 0; i < n; ++i) \
@@ -352,4 +376,99 @@ pack_knapsack_omp(knapsack_t *knapsack, double *dt, const items_t *items)
 
     free_matrix(pm, num_rows);
     return OK;
+}
+
+#define ROW 32
+#define COL 256
+
+#define min(x, y) \
+    (((x) < (y)) ? (x) : (y))
+
+void
+solve_mpi(int n, int c,
+          int rows, const items_t *items,
+          int start, int rank, int size);
+
+error_t
+pack_knapsack_mpi(knapsack_t *knapsack, double *dt, const items_t *items)
+{
+    int size, rank;
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+    for (int i = 0; i < items->count; i += ROW)
+    {
+        int rows  = min(ROW, items->count - i);
+        if ((i / ROW) % size == rank)
+            solve_mpi(items->count, knapsack->max_weight,
+                      rows, items, i, rank, size);
+    }
+}
+
+void
+solve_mpi(int n, int c,
+          int rows, const items_t *items,
+          int start, int rank, int size)
+{
+    int recv_rank = (rank-1)%size;
+    int send_rank = (rank+1)%size;
+    if (start == 0)
+    {
+        int i, j;
+        int **mp = malloc(sizeof(int [rows][c]));
+
+        for (j = 0; j < c; j += COL)
+        {
+            int cols = min(COL, c-j);
+            int k;
+            for (k = j; k < j + cols; k++) {
+                if (items->arr[0].weight > k) {
+                    mp[0][k] = 0;
+                } else {
+                    mp[0][k] = items->arr[0].value;
+                }
+            }
+            for (i = 1; i < rows; i++) {
+                for (k = j; k < j + cols; k++) {
+                    if ( (k<items->arr[i].weight) ||
+                         (mp[i-1][k] >= mp[i-1][k-items->arr[i].weight] + items->arr[i].value)) {
+                        mp[i][k] = mp[i-1][k];
+                    } else {
+                        mp[i][k] = mp[i-1][k-items->arr[i].weight] + items->arr[i].value;
+                    }
+                }
+            }
+            MPI_Send(&mp[rows-1][j], cols, MPI_INT, send_rank, j, MPI_COMM_WORLD);
+        }
+
+        free(mp);
+    } else {
+        int **mp = malloc(sizeof(int [rows+1][c]));
+
+        int i, j;
+        for (j = 0; j < c; j += COL) {
+            int cols = min(COL, c-j);
+            int k;
+            MPI_Recv(&mp[0][j], cols, MPI_INT, recv_rank, j, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            for (i = 1; i <= rows; i++) {
+                for (k = j; k < j + cols; k++) {
+                    int ni = i-1;
+                    if ( (k<items->arr[ni].weight) ||
+                         (mp[i-1][k] >= mp[i-1][k-items->arr[ni].weight] + items->arr[ni].value)) {
+                        mp[i][k] = mp[i-1][k];
+                    } else {
+                        mp[i][k] = mp[i-1][k-items->arr[ni].weight] + items->arr[ni].value;
+                    }
+                }
+            }
+
+            if (start + rows == n && j + cols == c) {
+                //TODO handle max value
+            } else if (start + rows != n){
+                MPI_Send(&mp[rows][j], cols, MPI_INT, send_rank, j, MPI_COMM_WORLD);
+            }
+        }
+
+        free(mp);
+    }
 }
