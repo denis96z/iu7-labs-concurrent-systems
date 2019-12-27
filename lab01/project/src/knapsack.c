@@ -2,6 +2,8 @@
 #include <assert.h>
 #include <stdlib.h>
 
+#include <omp.h>
+
 #include <knapsack.h>
 
 #define BUF_SIZE 16
@@ -226,8 +228,15 @@ free_matrix(int_t **m, size_t rc)
     free(m);
 }
 
+#define __LOG_STAT__
+#define printnl(n)                     \
+    do {                               \
+        for (size_t i = 0; i < n; ++i) \
+            printf("%s", "\n");        \
+    } while(0);
+
 error_t
-pack_knapsack(knapsack_t *knapsack, const items_t *items)
+pack_knapsack(knapsack_t *knapsack, double *dt, const items_t *items)
 {
     assert(knapsack && items);
 
@@ -239,6 +248,14 @@ pack_knapsack(knapsack_t *knapsack, const items_t *items)
     if (err != OK)
         return err;
 
+#ifdef __LOG_STAT__
+    puts("Task stat:");
+    printf("num_rows=%lu, num_cols=%lu\n", num_rows, num_cols);
+    printnl(1);
+#endif
+
+    double t1 = omp_get_wtime();
+
     for (int_t i = 1; i < num_rows; i++)
     {
         for (int_t j = 0; j < num_cols; j++)
@@ -246,7 +263,8 @@ pack_knapsack(knapsack_t *knapsack, const items_t *items)
             pm[i][j] = pm[i - 1][j];
 
             if ((j >= items->arr[i - 1].weight) &&
-                    (pm[i][j] < pm[i - 1][j - items->arr[i - 1].weight] + items->arr[i - 1].value)) {
+                    (pm[i][j] < pm[i - 1][j - items->arr[i - 1].weight] + items->arr[i - 1].value))
+            {
                 pm[i][j] = pm[i - 1][j - items->arr[i - 1].weight] + items->arr[i - 1].value;
             }
         }
@@ -261,6 +279,76 @@ pack_knapsack(knapsack_t *knapsack, const items_t *items)
             add_item_to_knapsack(knapsack, &items->arr[n - 1]);
         }
     }
+
+    double t2 = omp_get_wtime();
+    *dt = t2 - t1;
+
+    free_matrix(pm, num_rows);
+    return OK;
+}
+
+error_t
+pack_knapsack_omp(knapsack_t *knapsack, double *dt, const items_t *items)
+{
+    assert(knapsack && items);
+
+    int_t **pm = NULL;
+    const size_t num_rows = items->count + 1;
+    const size_t num_cols = knapsack->max_weight + 1;
+
+    error_t err = alloc_matrix(&pm, num_rows, num_cols, 1);
+    if (err != OK)
+        return err;
+
+    omp_set_dynamic(1);
+
+#ifdef __LOG_STAT__
+    puts("Task stat:");
+    printf("num_rows=%lu, num_cols=%lu\n", num_rows, num_cols);
+    printnl(1);
+
+    puts("OpenMP stat:");
+    printf("num_proc=%d, max_threads=%d\n",
+           omp_get_num_procs(), omp_get_max_threads());
+    printf("dynamic=%d, nested=%d\n",
+           omp_get_dynamic(), omp_get_nested());
+    printnl(1);
+#endif
+
+    int_t j = 0;
+    int_t prev_row_value = 0;
+
+    double t1 = omp_get_wtime();
+
+    for (int_t i = 1; i < num_rows; ++i)
+    {
+        #pragma omp parallel default(shared) private(j, prev_row_value)
+        {
+            #pragma omp for
+            for (j = 0; j < num_cols; ++j)
+            {
+                pm[i][j] = pm[i - 1][j];
+                prev_row_value = pm[i - 1][j - items->arr[i - 1].weight] +
+                        items->arr[i - 1].value;
+
+                if ((j >= items->arr[i - 1].weight) && (pm[i][j] < prev_row_value))
+                    pm[i][j] = prev_row_value;
+            }
+        }
+    }
+
+    size_t w = knapsack->max_weight;
+    for (int_t n = items->count; n > 0; --n)
+    {
+        if (pm[n][w] != pm[n - 1][w])
+        {
+            w -= items->arr[n - 1].weight;
+            add_item_to_knapsack(knapsack, &items->arr[n - 1]);
+        }
+    }
+
+    double t2 = omp_get_wtime();
+    *dt = t2 - t1;
 
     free_matrix(pm, num_rows);
     return OK;

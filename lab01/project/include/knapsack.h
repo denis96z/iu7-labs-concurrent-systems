@@ -92,6 +92,9 @@ error_t
 add_item_to_knapsack(knapsack_t *knapsack, const item_t *item);
 
 error_t
-pack_knapsack(knapsack_t *knapsack, const items_t *items);
+pack_knapsack(knapsack_t *knapsack, double *dt, const items_t *items);
+
+error_t
+pack_knapsack_omp(knapsack_t *knapsack, double *dt, const items_t *items);
 
 #endif //LAB01_KNAPSACK_H
