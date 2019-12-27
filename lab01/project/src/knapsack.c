@@ -226,24 +226,12 @@ free_matrix(int_t **m, size_t rc)
     free(m);
 }
 
-static void
-put_items_into_knapsack(knapsack_t *knapsack, const items_t *items,
-                        int_t **pm, size_t k, size_t w);
-
-static inline int_t
-max_int(int_t a, int_t b)
-{
-    return a > b ? a : b;
-}
-
-#define max(a, b) \
-    max_int(a, b)
-
 error_t
 pack_knapsack(knapsack_t *knapsack, const items_t *items)
 {
-    int_t **pm = NULL;
+    assert(knapsack && items);
 
+    int_t **pm = NULL;
     const size_t num_rows = items->count + 1;
     const size_t num_cols = knapsack->max_weight + 1;
 
@@ -251,36 +239,29 @@ pack_knapsack(knapsack_t *knapsack, const items_t *items)
     if (err != OK)
         return err;
 
-    for (size_t k = 1; k < num_rows; ++k)
-        for (size_t w = 1; w < num_cols; ++w)
+    for (int_t i = 1; i < num_rows; i++)
+    {
+        for (int_t j = 0; j < num_cols; j++)
         {
-            value_t vk = items->arr[k - 1].value;
-            weight_t wk = items->arr[k - 1].weight;
+            pm[i][j] = pm[i - 1][j];
 
-            if (w >= wk)
-                pm[k][w] = max(pm[k - 1][w], pm[k - 1][w - wk] + vk);
-            else
-                pm[k][w] = pm[k - 1][w];
+            if ((j >= items->arr[i - 1].weight) &&
+                    (pm[i][j] < pm[i - 1][j - items->arr[i - 1].weight] + items->arr[i - 1].value)) {
+                pm[i][j] = pm[i - 1][j - items->arr[i - 1].weight] + items->arr[i - 1].value;
+            }
         }
+    }
 
-    put_items_into_knapsack(knapsack, items, pm,
-                            items->count, knapsack->max_weight);
+    size_t w = knapsack->max_weight;
+    for (int_t n = items->count; n > 0; --n)
+    {
+        if (pm[n][w] != pm[n - 1][w])
+        {
+            w -= items->arr[n - 1].weight;
+            add_item_to_knapsack(knapsack, &items->arr[n - 1]);
+        }
+    }
 
     free_matrix(pm, num_rows);
     return OK;
-}
-
-static void
-put_items_into_knapsack(knapsack_t *knapsack, const items_t *items,
-                        int_t **pm, size_t k, size_t w)
-{
-    if (pm[k][w] == 0)
-        return;
-    if (pm[k - 1][w] == pm[k][w])
-        put_items_into_knapsack(knapsack, items, pm, k - 1, w);
-    else
-    {
-        put_items_into_knapsack(knapsack, items, pm, k - 1, w - items->arr[k - 1].weight);
-        add_item_to_knapsack(knapsack, &items->arr[k - 1]);
-    }
 }
